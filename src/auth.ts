@@ -5,7 +5,12 @@
 import { Context, Next, MiddlewareHandler } from "hono";
 import { getCookie } from "hono/cookie";
 import { verifyJWT } from "./jwt";
-import { paymentMiddleware } from "x402-hono";
+import { paymentMiddleware } from "@x402/hono";
+import {
+  HTTPFacilitatorClient,
+  x402ResourceServer,
+} from "@x402/core/server";
+import { registerExactEvmScheme } from "@x402/evm/exact/server";
 import type { AppContext } from "./env";
 
 /**
@@ -84,25 +89,32 @@ export function createProtectedRoute(config: ProtectedRouteConfig) {
 		const routePath =
 			rawPath.length > 1 ? rawPath.replace(/\/+$/, "") : rawPath;
 
-		// Create payment middleware dynamically with config from env
-		// Facilitator is optional - x402 uses its own default when not provided
-		const facilitator = c.env.FACILITATOR_URL
-			? { url: c.env.FACILITATOR_URL }
-			: undefined;
+		// Create x402 v2 payment middleware
+const facilitatorClient = new HTTPFacilitatorClient({
+  url: c.env.FACILITATOR_URL || "https://x402.org/facilitator",
+});
 
-		const paymentMw = paymentMiddleware(
-			c.env.PAY_TO as `0x${string}`,
-			{
-				[routePath]: {
-					price: config.price,
-					network: c.env.NETWORK,
-					config: {
-						description: config.description,
-					},
-				},
-			},
-			facilitator
-		);
+const server = new x402ResourceServer(facilitatorClient);
+
+registerExactEvmScheme(server);
+
+const paymentMw = paymentMiddleware(
+  {
+    [routePath]: {
+      accepts: [
+        {
+          scheme: "exact",
+          price: config.price,
+          network: "eip155:84532",
+          payTo: c.env.PAY_TO as `0x${string}`,
+        },
+      ],
+      description: config.description,
+      mimeType: "application/json",
+    },
+  },
+  server,
+);
 
 		// Apply the combined auth/payment middleware
 		return await requirePaymentOrCookie(paymentMw)(c, next);
