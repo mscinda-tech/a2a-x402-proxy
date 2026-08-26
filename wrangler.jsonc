@@ -87,10 +87,10 @@
 			// Example: Basic - All traffic must pay
 			// ─────────────────────────────────────────────────────────────────
 			{
-				"pattern": "/premium/*",
-				"price": "$0.01",
-				"description": "Access to premium content for 1 hour",
-			},
+  "pattern": "/verify",
+  "price": "$0.10",
+  "description": "A2A Project Zero Evidence API",
+},
 			// ─────────────────────────────────────────────────────────────────
 			// Example: Bot Management Filtering
 			// Requires Bot Management for Enterprise to enable bot filtering.
@@ -124,7 +124,7 @@
 		// Note: If ORIGIN_SERVICE binding is configured above, it takes priority
 		// over both ORIGIN_URL and DNS-based routing.
 		//
-		// "ORIGIN_URL": "https://my-backend.example.com",
+		"ORIGIN_URL": "https://a2a-project-zero.mscinda.workers.dev",
 		// =====================================================================
 		// FACILITATOR_URL - Payment verification service (OPTIONAL)
 		// =====================================================================
