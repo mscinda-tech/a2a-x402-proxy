@@ -34,12 +34,12 @@
 	// in your account. Service Bindings are faster (no network hop) and
 	// don't require the origin Worker to have a public route.
 	//
-	// "services": [
-	// 	{
-	// 		"binding": "ORIGIN_SERVICE",
-	// 		"service": "a2a-origin-worker",
-	// 	},
-	// ],
+	"services": [
+  {
+    "binding": "ORIGIN_SERVICE",
+    "service": "a2a-project-zero",
+  },
+],
 	"vars": {
 		// =====================================================================
 		// PAY_TO - Your wallet address to receive payments (REQUIRED)
