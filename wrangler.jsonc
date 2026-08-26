@@ -37,7 +37,7 @@
 	// "services": [
 	// 	{
 	// 		"binding": "ORIGIN_SERVICE",
-	// 		"service": "my-origin-worker",
+	// 		"service": "a2a-origin-worker",
 	// 	},
 	// ],
 	"vars": {
