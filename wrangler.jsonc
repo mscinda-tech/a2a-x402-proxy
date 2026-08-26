@@ -124,7 +124,7 @@
 		// Note: If ORIGIN_SERVICE binding is configured above, it takes priority
 		// over both ORIGIN_URL and DNS-based routing.
 		//
-		"ORIGIN_URL": "https://a2a-project-zero.mscinda.workers.dev",
+		//"ORIGIN_URL": "https://a2a-project-zero.mscinda.workers.dev",
 		// =====================================================================
 		// FACILITATOR_URL - Payment verification service (OPTIONAL)
 		// =====================================================================
