@@ -20,10 +20,12 @@
 		}
 	},
 	"dependencies": {
-		"@coinbase/x402": "2.0.0",
-		"hono": "4.11.1",
-		"x402-hono": "1.0.0"
-	},
+  "@coinbase/x402": "2.0.0",
+  "@x402/core": "^2.0.0",
+  "@x402/evm": "^2.0.0",
+  "@x402/hono": "^2.0.0",
+  "hono": "4.11.1"
+},
 	"devDependencies": {
 		"@typescript-eslint/eslint-plugin": "8.50.0",
 		"@typescript-eslint/parser": "8.50.0",
