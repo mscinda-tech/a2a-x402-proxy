@@ -88,7 +88,7 @@
 			// Example: Basic - All traffic must pay
 			// ─────────────────────────────────────────────────────────────────
 			{
-  "pattern": "/verify",
+  "pattern": "/evidence-check",
   "price": "$0.10",
   "description": "A2A Project Zero Evidence API",
 },
