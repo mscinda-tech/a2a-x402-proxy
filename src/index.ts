@@ -7,10 +7,6 @@ import type { AppContext, Env } from "./env";
 
 const app = new Hono<AppContext>();
 
-/**
- * Built-in protected paths that always require payment
- * These are used for testing and don't need to be configured
- */
 const BUILTIN_PROTECTED_PATHS: ProtectedRouteConfig[] = [
 	{
 		pattern: "/__x402/protected",
@@ -19,16 +15,8 @@ const BUILTIN_PROTECTED_PATHS: ProtectedRouteConfig[] = [
 	},
 ];
 
-/**
- * Built-in public paths that don't require payment
- * These are used for testing and don't need to be configured
- */
 const BUILT_IN_PUBLIC_PATHS = ["/__x402/health", "/__x402/config"];
 
-/**
- * Get the request path without parsing the URL so normalization changes can be
- * detected before making an authorization decision.
- */
 function getRawPath(url: string): string {
 	const authorityStart = url.indexOf("://");
 	const pathStart = url.indexOf("/", authorityStart + 3);
@@ -40,39 +28,17 @@ function getRawPath(url: string): string {
 	return url.slice(pathStart, queryStart === -1 ? undefined : queryStart);
 }
 
-/**
- * Reject paths whose resource identity changes when parsed as a URL. Forwarding
- * such a path could make the authorization check and origin resolve it
- * differently.
- */
 function hasNonCanonicalPath(url: string): boolean {
 	const rawPath = getRawPath(url);
 	return rawPath !== new URL(url).pathname || rawPath.includes("//");
 }
 
-/**
- * Proxy a request to the origin server.
- *
- * Three modes:
- * 1. Service Binding (ORIGIN_SERVICE bound): Calls the bound Worker directly.
- *    Best for Worker-to-Worker communication within the same account.
- *    No network hop, faster than URL-based approaches.
- *
- * 2. External Origin (ORIGIN_URL set): Rewrites the URL to the specified origin
- *    while preserving the original Host header. This allows proxying to another
- *    Worker on a Custom Domain or any external service.
- *
- * 3. DNS-based (default): Uses fetch(request) which routes to the origin server
- *    defined in your DNS records. Best for traditional backends.
- */
 async function proxyToOrigin(request: Request, env: Env): Promise<Response> {
-	// Service Binding: call the bound Worker directly (highest priority)
 	if (env.ORIGIN_SERVICE) {
 		return env.ORIGIN_SERVICE.fetch(request);
 	}
 
 	if (env.ORIGIN_URL) {
-		// External Origin mode: rewrite URL to target origin
 		const originalUrl = new URL(request.url);
 		const targetUrl = new URL(env.ORIGIN_URL);
 
@@ -83,20 +49,15 @@ async function proxyToOrigin(request: Request, env: Env): Promise<Response> {
 
 		const response = await fetch(proxiedUrl, {
 			method: request.method,
-			headers: request.headers, // Preserves original Host header
+			headers: request.headers,
 			body: request.body,
-			redirect: "manual", // Handle redirects ourselves to rewrite Location headers
+			redirect: "manual",
 		});
 
-		// Rewrite Location header in redirects to keep user on the proxy domain
-		// We rewrite ALL redirects to stay on the proxy, regardless of where the origin
-		// tries to send the user (e.g., cloudflare.com -> www.cloudflare.com)
 		const location = response.headers.get("Location");
 		if (location) {
 			try {
 				const locationUrl = new URL(location, proxiedUrl);
-
-				// Rewrite the location to point back to the proxy
 				locationUrl.hostname = originalUrl.hostname;
 				locationUrl.protocol = originalUrl.protocol;
 				locationUrl.port = originalUrl.port;
@@ -110,21 +71,16 @@ async function proxyToOrigin(request: Request, env: Env): Promise<Response> {
 					headers: newHeaders,
 				});
 			} catch {
-				// If URL parsing fails, return response as-is
+				// Return response as-is if redirect URL parsing fails.
 			}
 		}
 
 		return response;
 	}
 
-	// DNS-based mode: forward request as-is to origin defined in DNS
 	return fetch(request);
 }
 
-/**
- * Check if a path matches a route pattern
- * Supports exact matches and prefix matches with /* wildcard
- */
 function pathMatchesPattern(path: string, pattern: string): boolean {
 	if (pattern.endsWith("/*")) {
 		const prefix = pattern.slice(0, -2);
@@ -133,26 +89,80 @@ function pathMatchesPattern(path: string, pattern: string): boolean {
 	return path === pattern;
 }
 
-/**
- * Helper to find the protected route config for a given path
- * Includes both built-in protected routes and configured patterns
- */
 function findProtectedRouteConfig(
 	path: string,
 	patterns: ProtectedRouteConfig[]
 ): ProtectedRouteConfig | null {
-	// Check built-in protected routes first, then configured patterns
 	const allRoutes = [...BUILTIN_PROTECTED_PATHS, ...patterns];
 	return (
 		allRoutes.find((config) => pathMatchesPattern(path, config.pattern)) ?? null
 	);
 }
 
-/**
- * Main proxy handler - intercepts protected routes, proxies everything else
- * Note: This middleware runs for all routes, but route handlers below can still
- * take precedence by being registered after this middleware
- */
+function addBazaarMetadata(response: Response, path: string): Response {
+	if (response.status !== 402 || path !== "/evidence-check") {
+		return response;
+	}
+
+	const encoded = response.headers.get("payment-required");
+	if (!encoded) {
+		return response;
+	}
+
+	try {
+		const paymentRequired = JSON.parse(atob(encoded));
+		paymentRequired.extensions = {
+			...(paymentRequired.extensions || {}),
+			bazaar: {
+				info: {
+					input: {
+						type: "http",
+						method: "POST",
+						bodyType: "json",
+						body: {
+							question: "Does creatine improve strength in healthy adults?",
+						},
+					},
+					output: {
+						type: "json",
+						example: {
+							status: "complete",
+							answer: "Evidence-based answer",
+							confidence: 0.9,
+							evidence: ["Supporting evidence"],
+							uncertainty: [],
+							sources: [],
+						},
+					},
+				},
+				schema: {
+					type: "object",
+					properties: {
+						input: { type: "object" },
+						output: { type: "object" },
+					},
+					required: ["input", "output"],
+				},
+			},
+		};
+
+		if (paymentRequired.resource) {
+			paymentRequired.resource.serviceName = "A2A Evidence Check";
+			paymentRequired.resource.tags = ["evidence", "research", "analysis", "ai-agent"];
+		}
+
+		const headers = new Headers(response.headers);
+		headers.set("payment-required", btoa(JSON.stringify(paymentRequired)));
+		return new Response(response.body, {
+			status: response.status,
+			statusText: response.statusText,
+			headers,
+		});
+	} catch {
+		return response;
+	}
+}
+
 app.use("*", async (c, next) => {
 	if (hasNonCanonicalPath(c.req.url)) {
 		return c.json({ error: "Non-canonical request path" }, 400);
@@ -161,16 +171,12 @@ app.use("*", async (c, next) => {
 	const path = c.req.path;
 	const protectedPatterns = c.env.PROTECTED_PATTERNS || [];
 
-	// Special handling for built-in endpoints
-	// These are handled by route handlers below, not proxied
 	if (BUILT_IN_PUBLIC_PATHS.includes(path)) {
-		return next(); // Let the route handler below handle it
+		return next();
 	}
 
-	// Check if this path is protected (including /__x402/protected)
 	const protectedConfig = findProtectedRouteConfig(path, protectedPatterns);
 	if (protectedConfig) {
-		// Bot Management Filtering: check if request has exception (human or excepted bot)
 		if (hasBotManagementException(c.req.raw, protectedConfig)) {
 			if (path === "/__x402/protected") {
 				return next();
@@ -178,7 +184,6 @@ app.use("*", async (c, next) => {
 			return proxyToOrigin(c.req.raw, c.env);
 		}
 
-		// Ensure JWT_SECRET is configured before processing protected routes
 		if (!c.env.JWT_SECRET) {
 			return c.json(
 				{
@@ -189,41 +194,26 @@ app.use("*", async (c, next) => {
 			);
 		}
 
-		// Use the protected route middleware
 		const protectedMiddleware = createProtectedRoute(protectedConfig);
 		let jwtToken = "";
 
 		const result = await protectedMiddleware(c, async () => {
-			// After successful auth, check if we need to issue a cookie
 			const hasExistingAuth = c.get("auth");
 
 			if (!hasExistingAuth) {
-				// This is a new payment - generate JWT cookie
-				// Note: This runs after payment verification but BEFORE settlement.
-				// We'll check if settlement succeeded before actually using the token.
 				jwtToken = await generateJWT(c.env.JWT_SECRET, 3600);
 			}
-
-			// Do nothing here - we'll proxy after middleware returns
 		});
 
-		// If middleware returned a response (e.g., 402), return it
 		if (result) {
-			return result;
+			return addBazaarMetadata(result, path);
 		}
 
-		// Check if the payment middleware set an error response (e.g., settlement failed)
-		// The x402-hono middleware sets c.res to a 402 if settlement fails, even though
-		// it doesn't return a Response object. We must check c.res status and discard
-		// the JWT token if payment didn't fully complete.
 		if (c.res && c.res.status >= 400) {
-			// Payment verification succeeded but settlement failed - don't grant access
-			return c.res;
+			return addBazaarMetadata(c.res, path);
 		}
 
 		if (path === "/__x402/protected") {
-			// If we generated a JWT token, set the cookie BEFORE calling next()
-			// so it's included in the response that Hono builds
 			if (jwtToken) {
 				setCookie(c, "auth_token", jwtToken, {
 					httpOnly: true,
@@ -238,12 +228,9 @@ app.use("*", async (c, next) => {
 			return c.res;
 		}
 
-		// Proxy the authenticated request to origin
 		const originResponse = await proxyToOrigin(c.req.raw, c.env);
 
-		// If we generated a JWT token, add it as a cookie to the response
 		if (jwtToken) {
-			// Use Hono's setCookie to generate the proper Set-Cookie header
 			setCookie(c, "auth_token", jwtToken, {
 				httpOnly: true,
 				secure: true,
@@ -252,15 +239,12 @@ app.use("*", async (c, next) => {
 				path: "/",
 			});
 
-			// Clone the origin response and add our cookie header
 			const newResponse = new Response(originResponse.body, {
 				status: originResponse.status,
 				statusText: originResponse.statusText,
 				headers: new Headers(originResponse.headers),
 			});
 
-			// Copy Set-Cookie headers from Hono context to our response
-			// Use getSetCookie() to properly handle multiple Set-Cookie headers
 			const setCookieHeaders = c.res.headers.getSetCookie();
 			for (const cookie of setCookieHeaders) {
 				newResponse.headers.append("Set-Cookie", cookie);
@@ -269,18 +253,12 @@ app.use("*", async (c, next) => {
 			return newResponse;
 		}
 
-		// Otherwise, return origin response as-is
 		return originResponse;
 	}
 
-	// Proxy unprotected routes directly to origin
 	return proxyToOrigin(c.req.raw, c.env);
 });
 
-/**
- * Built-in test endpoint - always public, never requires payment
- * Used for health checks and testing proxy functionality
- */
 app.get("/__x402/health", (c) => {
 	return c.json({
 		status: "ok",
@@ -290,10 +268,6 @@ app.get("/__x402/health", (c) => {
 	});
 });
 
-/**
- * Config status endpoint - shows current configuration (no secrets exposed)
- * Useful for debugging and verifying deployment
- */
 app.get("/__x402/config", (c) => {
 	const patterns = (c.env.PROTECTED_PATTERNS || []) as ProtectedRouteConfig[];
 	const botFilteringEnabled = patterns.some(
@@ -319,11 +293,6 @@ app.get("/__x402/config", (c) => {
 	});
 });
 
-/**
- * Built-in test endpoint - always protected, always requires payment
- * Used for testing payment flow without needing to configure protected patterns
- * This endpoint serves content directly (not proxied to origin)
- */
 app.get("/__x402/protected", (c) => {
 	return c.json({
 		message: "Premium content accessed!",
