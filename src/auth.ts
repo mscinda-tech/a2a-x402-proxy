@@ -72,6 +72,75 @@ export interface ProtectedRouteConfig {
 	except_detection_ids?: number[];
 }
 
+function buildBazaarExtensions(routePath: string) {
+	if (routePath !== "/evidence-check") {
+		return undefined;
+	}
+
+	return {
+		bazaar: {
+			info: {
+				input: {
+					type: "http",
+					method: "POST",
+					bodyType: "json",
+					body: {
+						question: "Does creatine improve strength in healthy adults?",
+					},
+				},
+				output: {
+					type: "json",
+					example: {
+						question: "Does creatine improve strength in healthy adults?",
+						status: "complete",
+						answer: "Creatine supplementation can improve strength performance in healthy adults when combined with resistance training.",
+						confidence: 0.9,
+						evidence: ["Evidence summary returned by the service"],
+						uncertainty: [],
+						sources: [],
+					},
+				},
+			},
+			schema: {
+				$schema: "https://json-schema.org/draft/2020-12/schema",
+				type: "object",
+				properties: {
+					input: {
+						type: "object",
+						additionalProperties: false,
+						properties: {
+							type: { type: "string", const: "http" },
+							method: { type: "string", enum: ["POST"] },
+							bodyType: { type: "string", enum: ["json"] },
+							body: {
+								type: "object",
+								properties: {
+									question: { type: "string" },
+									claim: { type: "string" },
+								},
+								anyOf: [
+									{ required: ["question"] },
+									{ required: ["claim"] },
+								],
+							},
+						},
+						required: ["type", "method", "bodyType", "body"],
+					},
+					output: {
+						type: "object",
+						properties: {
+							type: { type: "string", const: "json" },
+							example: { type: "object" },
+						},
+						required: ["type", "example"],
+					},
+				},
+				required: ["input", "output"],
+			},
+		},
+	};
+}
+
 /**
  * Creates middleware for a protected route that requires payment OR valid cookie
  * This dynamically creates payment middleware at request time to access environment variables
@@ -89,32 +158,37 @@ export function createProtectedRoute(config: ProtectedRouteConfig) {
 		const routePath =
 			rawPath.length > 1 ? rawPath.replace(/\/+$/, "") : rawPath;
 
-		// Create x402 v2 payment middleware
-const facilitatorClient = new HTTPFacilitatorClient({
-  url: c.env.FACILITATOR_URL || "https://x402.org/facilitator",
-});
+		const facilitatorClient = new HTTPFacilitatorClient({
+			url:
+				c.env.FACILITATOR_URL ||
+				"https://api.cdp.coinbase.com/platform/v2/x402",
+		});
 
-const server = new x402ResourceServer(facilitatorClient);
+		const server = new x402ResourceServer(facilitatorClient);
 
-registerExactEvmScheme(server);
+		registerExactEvmScheme(server);
 
-const paymentMw = paymentMiddleware(
-  {
-    [routePath]: {
-      accepts: [
-        {
-          scheme: "exact",
-          price: config.price,
-          network: "eip155:84532",
-          payTo: c.env.PAY_TO as `0x${string}`,
-        },
-      ],
-      description: config.description,
-      mimeType: "application/json",
-    },
-  },
-  server,
-);
+		const network =
+			c.env.NETWORK === "base" ? "eip155:8453" : "eip155:84532";
+
+		const paymentMw = paymentMiddleware(
+			{
+				[routePath]: {
+					accepts: [
+						{
+							scheme: "exact",
+							price: config.price,
+							network,
+							payTo: c.env.PAY_TO as `0x${string}`,
+						},
+					],
+					description: config.description,
+					mimeType: "application/json",
+					extensions: buildBazaarExtensions(routePath),
+				},
+			},
+			server,
+		);
 
 		// Apply the combined auth/payment middleware
 		return await requirePaymentOrCookie(paymentMw)(c, next);
