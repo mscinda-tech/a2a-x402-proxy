@@ -73,7 +73,7 @@
 		// =====================================================================
 		// FACILITATOR_URL - Payment verification service (OPTIONAL)
 		// =====================================================================
-		"FACILITATOR_URL": "https://x402.org/facilitator",
+		"FACILITATOR_URL": "https://facilitator.payai.network",
 	},
 	"upload_source_maps": true,
 }
